@@ -1,0 +1,22 @@
+version: "3.9"
+services:
+  tm:
+    build: ./tm
+    ports:
+      - "9999:9999" 
+  api:
+    build: ./services/api
+    ports:
+      - "8080:8080"
+  customer:
+    build: ./services/account
+    ports:
+      - "4000:4000"
+  customer:
+    build: ./services/account
+    ports:
+      - "5000:5000"
+  mysql:
+    image: "mysql:8.0"
+    ports:
+      - "3306:3306"
