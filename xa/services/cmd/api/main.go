@@ -20,7 +20,7 @@ func main() {
 		if err != nil || resp1.StatusCode != 200 {
 			// log.Printf("call customer service error tid=%s status code=%d", tid, resp1.StatusCode)
 			rollback(tid)
-			rw.Write([]byte("faild"))
+			rw.Write([]byte("failed"))
 			return
 		}
 
@@ -28,7 +28,7 @@ func main() {
 		resp2, err := http.Get("http://merchant:5000/add?tid=" + tid)
 		if err != nil || resp2.StatusCode != 200 {
 			rollback(tid)
-			rw.Write([]byte("faild"))
+			rw.Write([]byte("failed"))
 			return
 		}
 
