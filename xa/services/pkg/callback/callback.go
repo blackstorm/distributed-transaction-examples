@@ -17,7 +17,7 @@ func CallbackHandleFunc(db *sql.DB) func(w http.ResponseWriter, r *http.Request)
 		log.Printf("tm callback status=%s tid=%s xid=%s", status, tid, xid)
 
 		var err error
-		if status == "ok" {
+		if status == "commit" {
 			err = xa.Commit(db, xid)
 		} else {
 			err = xa.Rollback(db, xid)

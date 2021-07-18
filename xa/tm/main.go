@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
@@ -51,36 +52,11 @@ func main() {
 	})
 
 	http.HandleFunc("/done", func(rw http.ResponseWriter, r *http.Request) {
-		tid := r.URL.Query().Get("tid")
-
-		log.Printf("tid=%s done", tid)
-
-		t := transactions[tid]
-		if t != nil {
-			for _, r := range t.Resources {
-				url := r.Callback + "?status=ok&tid=" + tid + "&xid=" + r.Xid
-				log.Printf("callback url=%s", url)
-				_, err := http.Get(url)
-				if err != nil {
-					log.Println(errors.WithStack(err))
-				}
-			}
-			delete(transactions, tid)
-		} else {
-			log.Printf("do done transaction tid=%s no exist", tid)
-		}
+		commitOrRollback(r, "commit")
 	})
 
 	http.HandleFunc("/rollback", func(rw http.ResponseWriter, r *http.Request) {
-		tid := r.URL.Query().Get("tid")
-		t := transactions[tid]
-		if t != nil {
-			for _, r := range t.Resources {
-				// todo
-				http.Get(r.Callback + "?" + "status=rollback&tid=" + tid + "&xid=" + r.Xid)
-			}
-			delete(transactions, tid)
-		}
+		commitOrRollback(r, "rollback")
 	})
 
 	http.HandleFunc("/transactions", func(rw http.ResponseWriter, r *http.Request) {
@@ -89,4 +65,23 @@ func main() {
 	})
 
 	log.Fatal(http.ListenAndServe(":9999", nil))
+}
+
+func commitOrRollback(r *http.Request, status string) {
+	tid := r.URL.Query().Get("tid")
+	t := transactions[tid]
+	if t != nil {
+		for _, r := range t.Resources {
+			// r.Callback + "?status=ok&tid=" + tid + "&xid=" + r.Xid
+			url := fmt.Sprintf("%s?status=%s&tid=%s&xid=%s", r.Callback, status, tid, r.Xid)
+			log.Printf("callback url=%s", url)
+			_, err := http.Get(url)
+			if err != nil {
+				log.Println(errors.WithStack(err))
+			}
+		}
+		delete(transactions, tid)
+	} else {
+		log.Printf("do commit or rollback transaction tid=%s no exist", tid)
+	}
 }
