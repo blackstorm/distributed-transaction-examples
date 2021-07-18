@@ -58,7 +58,9 @@ func main() {
 		t := transactions[tid]
 		if t != nil {
 			for _, r := range t.Resources {
-				_, err := http.Get(r.Callback + "?status=ok&tid=" + tid + "&xid=" + r.Xid)
+				url := r.Callback + "?status=ok&tid=" + tid + "&xid=" + r.Xid
+				log.Printf("callback url=%s", url)
+				_, err := http.Get(url)
 				if err != nil {
 					log.Println(errors.WithStack(err))
 				}

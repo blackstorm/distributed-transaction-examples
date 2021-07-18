@@ -10,23 +10,23 @@ func main() {
 	log.SetPrefix("api service: ")
 
 	http.HandleFunc("/order", func(rw http.ResponseWriter, r *http.Request) {
-		// 开启事务
-		// transaction id
+		// open a new transaction
 		tid, _ := newTransaction()
 		log.Printf("new transaction id %s", tid)
 
-		// call customer
+		// call customer service to reduce moneny
 		resp1, err := http.Get("http://customer:4000/reduce?tid=" + tid)
 		if err != nil || resp1.StatusCode != 200 {
-			// log.Printf("call customer service error tid=%s status code=%d", tid, resp1.StatusCode)
+			// ensure rpc service is support empty (not exist) rollback
 			rollback(tid)
 			rw.Write([]byte("failed"))
 			return
 		}
 
-		// call merchant
+		// call merchant service to add moneny
 		resp2, err := http.Get("http://merchant:5000/add?tid=" + tid)
 		if err != nil || resp2.StatusCode != 200 {
+			// ditto
 			rollback(tid)
 			rw.Write([]byte("failed"))
 			return

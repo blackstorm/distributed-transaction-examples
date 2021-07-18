@@ -29,13 +29,24 @@ func main() {
 			}
 		}()
 
+		// ensure the customer account balance > 0
+		var balance int
+		if err := db.QueryRow("select balance from customer_account where id = 1 limit 1").Scan(&balance); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			panic(errors.WithStack(err))
+		}
+		if balance <= 0 {
+			log.Printf("balance is insufficient.")
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
 		// xa start
 		if err := XA.Start(); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			panic(errors.WithStack(err))
 		}
 
-		// ensure the customer account balance > 0
 		if _, err := db.Exec("update customer_account set balance = balance - 10 where id = 1"); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			panic(errors.WithStack(err))
