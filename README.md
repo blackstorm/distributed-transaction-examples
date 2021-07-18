@@ -8,3 +8,6 @@ The `xa` example use http protocol for all rpc call.
 GET http://api:8080/order
 ```
 `/order` api will call `customer` and `merchant` service.
+
+## Task
+- [ ] xa example docker-compose
