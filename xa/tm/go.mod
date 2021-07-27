@@ -1,4 +1,4 @@
-module blackstorm.github.com/dt/xa/tm
+module github.com/blackstorm/dt/xa/tm
 
 go 1.16
 
