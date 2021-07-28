@@ -2,7 +2,7 @@ CREATE DATABASE `order`;
 use order;
 
 create table `order` (
-  id int(8) not null primary key auto_increment,
+  id varchar(32) not null,
   status varchar(32) not null
 )
 

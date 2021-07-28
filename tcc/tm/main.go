@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 
@@ -13,6 +15,7 @@ import (
 type Branch struct {
 	Id      string
 	Service string
+	ReqBody []byte
 }
 
 type Transaction struct {
@@ -45,6 +48,10 @@ func main() {
 		tid := r.URL.Query().Get("tid")
 		service := r.URL.Query().Get("service")
 		branchId := xid.New().String()
+
+		// todo should read form body
+		reqBody, _ := ioutil.ReadAll(r.Body)
+
 		setLogPrefix(tid)
 		log.Printf("register branch= %s service = %s", branchId, service)
 		t := transactions[tid]
@@ -53,16 +60,17 @@ func main() {
 			t.Branchs[branchId] = &Branch{
 				Id:      branchId,
 				Service: service,
+				ReqBody: reqBody,
 			}
 		}
 	})
 
 	http.HandleFunc("/confirm", func(rw http.ResponseWriter, r *http.Request) {
-		confirmOrCancel(r, "confirm")
+		getAndRangeTransactions(r, handleStep2(r, "confirm"))
 	})
 
 	http.HandleFunc("/cancel", func(rw http.ResponseWriter, r *http.Request) {
-		confirmOrCancel(r, "cancel")
+		getAndRangeTransactions(r, handleStep2(r, "cancel"))
 	})
 
 	http.HandleFunc("/transactions", func(rw http.ResponseWriter, r *http.Request) {
@@ -73,17 +81,25 @@ func main() {
 	log.Fatal(http.ListenAndServe(":9999", nil))
 }
 
-func confirmOrCancel(r *http.Request, status string) error {
+func handleStep2(r *http.Request, action string) func(*Transaction, *Branch) error {
+	return func(t *Transaction, b *Branch) error {
+		url := fmt.Sprintf("%s/tcc/%s?tid=%s", b.Service, action, t.Id)
+		// TODO whit retry
+		http.Post(url, "application/json", bytes.NewReader(b.ReqBody))
+		return nil
+	}
+}
+
+func getAndRangeTransactions(r *http.Request, fn func(*Transaction, *Branch) error) error {
 	tid := r.URL.Query().Get("tid")
 	setLogPrefix(tid)
-	log.Printf("transaction %s", status)
 	if transaction, ok := transactions[tid]; ok {
-
 		for _, branch := range transaction.Branchs {
-			log.Printf("call branch %s", branch.Service)
+			err := fn(transaction, branch)
+			if err != nil {
+				return err
+			}
 		}
-		return nil
-	} else {
-		return errors.New("transaction not exist")
 	}
+	return errors.New("transaction not found")
 }

@@ -1,12 +1,19 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 
 	"github.com/blackstorm/dt/tcc/services/pkg/database"
 	"github.com/blackstorm/dt/tcc/services/pkg/tcc"
+	"github.com/rs/xid"
 )
+
+type OrderRequest struct {
+	Id string
+}
 
 func main() {
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
@@ -17,50 +24,95 @@ func main() {
 		panic(err)
 	}
 
+	// The order api. create a new order and enable a gloabl transaction!
 	http.HandleFunc("/order", func(rw http.ResponseWriter, r *http.Request) {
+		// create a new transaction
 		tx, err := tcc.NewTransaction()
 		if err != nil {
 			panic(err)
 		}
 
-		/*
-			defer func() {
-				if err := recover(); err != nil {
-					log.Printf("%v", err)
-					rw.WriteHeader(http.StatusInternalServerError)
-				}
-			}()
-		*/
-
-		if err = tx.CallBranch("http://order:4000", nil); err != nil {
+		// create a new order
+		orderId := xid.New().String()
+		if _, err := db.Exec(fmt.Sprintf("insert into `order` (id, status) values('%s', 'CREATED')", orderId)); err != nil {
 			panic(err)
 		}
 
-		if err = tx.CallBranch("http://account:5000", nil); err != nil {
-			panic(err)
+		// do business
+		err = tx.DoBusiness(func() error {
+			if err = tx.CallBranch("http://order:4000", &OrderRequest{Id: orderId}); err != nil {
+				return err
+			}
+			if err = tx.CallBranch("http://account:5000", nil); err != nil {
+				return err
+			}
+			return nil
+		})
+
+		// catch error for response
+		if err != nil {
+			rw.WriteHeader(http.StatusInternalServerError)
 		}
 	})
 
 	http.HandleFunc("/tcc/try", func(rw http.ResponseWriter, r *http.Request) {
 		tid := r.URL.Query().Get("tid")
-		log.Printf("tcc %s try ", tid)
+
+		// get request body
+		decoder := json.NewDecoder(r.Body)
+		var orderREquest OrderRequest
+		decoder.Decode(&orderREquest)
+
+		log.Printf("tcc %s try order id = %s", tid, orderREquest.Id)
+
+		logAndResponseStatusError := func(message string, err error) {
+			log.Printf(message, err)
+			rw.WriteHeader(http.StatusInternalServerError)
+		}
 
 		// 幂等问题
 		tccChecker := tcc.NewTCCChecker(tid, db)
 		if isTried, err := tccChecker.IsTried(); err != nil {
-			log.Printf("check is tried error %v", err)
-			rw.WriteHeader(http.StatusInternalServerError)
+			logAndResponseStatusError("check is tried error %v", err)
+			return
 		} else {
 			if isTried {
 				return
 			}
 		}
 
-		// TODO 悬挂问题
+		// 悬挂问题
+		if isCancel, err := tccChecker.IsCancel(); err != nil {
+			logAndResponseStatusError("check is cancel error %v", err)
+			return
+		} else {
+			if isCancel {
+				return
+			}
+		}
 
-		// 流程处理，注意本地事务加持
-		tcc.NewTCCLoger(tid, db).LogTry()
-		// TODO update order status;
+		if isConfirm, err := tccChecker.IsConfirm(); err != nil {
+			logAndResponseStatusError("check is confirm error %v", err)
+			return
+		} else {
+			if isConfirm {
+				return
+			}
+		}
+
+		// TODO 事务支持
+		if _, err := db.Exec(fmt.Sprintf("update `order` set status = 'UPDATING' where id = '%s'", orderREquest.Id)); err != nil {
+			logAndResponseStatusError("order update status error %v", err)
+			return
+		}
+
+		// 事务落库
+		if err := tcc.NewTCCLoger(tid, db).LogTry(); err != nil {
+			log.Printf("log try error %v", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
 	})
 
 	http.HandleFunc("/tcc/confirm", func(rw http.ResponseWriter, r *http.Request) {
@@ -68,7 +120,37 @@ func main() {
 	})
 
 	http.HandleFunc("/tcc/cancel", func(rw http.ResponseWriter, r *http.Request) {
-		// 处理空回滚
+		tid := r.URL.Query().Get("tid")
+		log.Printf("transaction %s cancel", tid)
+
+		var orderRequest OrderRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.Decode(&orderRequest)
+
+		// 幂等
+		checker := tcc.NewTCCChecker(tid, db)
+		if isCanceled, err := checker.IsCancel(); err != nil {
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		} else {
+			if isCanceled {
+				return
+			}
+		}
+
+		// 支持空回滚
+		if _, err := db.Exec(fmt.Sprintf("update `order` set status = 'CANCELED' where id = '%s'", orderRequest.Id)); err != nil {
+			log.Printf("order update status error %v", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		tccLoger := tcc.NewTCCLoger(tid, db)
+		if err := tccLoger.LogCancel(); err != nil {
+			log.Printf("tcc log cancel error %v", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	})
 
 	log.Fatal(http.ListenAndServe(":4000", nil))

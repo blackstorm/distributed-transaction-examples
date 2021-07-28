@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"net/http"
 )
 
@@ -24,9 +25,34 @@ func NewTransaction() (*TCC, error) {
 	}, nil
 }
 
-func (t *TCC) CallBranch(service string, v interface{}) error {
+type BusinessFunc func() error
 
-	resp, err := httpPost("http://tm:9999/branch?tid="+t.Id+"&service="+service, nil)
+func (t *TCC) DoBusiness(fn BusinessFunc) error {
+	cancel := func() {
+		err := t.Cancel()
+		if err != nil {
+			log.Printf("tx cancel error %v", err)
+		}
+	}
+
+	// catch runtime exception
+	defer func() {
+		if e := recover(); e != nil {
+			cancel()
+			panic(e)
+		}
+	}()
+
+	// catch exception
+	err := fn()
+	if err != nil {
+		cancel()
+	}
+	return err
+}
+
+func (t *TCC) CallBranch(service string, v interface{}) error {
+	resp, err := httpPost("http://tm:9999/branch?tid="+t.Id+"&service="+service, v)
 	if err == nil {
 		branchId := readHttpResponse2String(resp)
 		url := fmt.Sprintf("%s/tcc/try?tid=%s&branchId=%s", service, t.Id, branchId)
@@ -40,53 +66,13 @@ func (t *TCC) CallBranch(service string, v interface{}) error {
 		}
 	}
 
-	t.Cancel()
 	return err
 }
 
-/*
-func (t *TCC) CallBranchs(v interface{}, services ...string) error {
-	len := len(services)
-	counter := make(chan string)
-	errs := make(chan error)
-
-	defer func() {
-		close(counter)
-		close(errs)
-	}()
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	for _, srv := range services {
-		go func(ctx context.Context, srv string, v interface{}) {
-			err := t.CallBranch(ctx, srv, v)
-			counter <- srv
-			if err != nil {
-				errs <- err
-			}
-		}(ctx, srv, v)
-	}
-
-	for {
-		select {
-		case e := <-errs:
-			// log.Printf("%v", e)
-			cancel()
-			return e
-		case <-counter:
-			len--
-			if len == 0 {
-				ctx.Done()
-				return nil
-			}
-		}
-	}
-}
-*/
-
-func (t *TCC) Cancel() {
+func (t *TCC) Cancel() error {
 	// TODO retry
 	http.Get("http://tm:9999/cancel?tid=" + t.Id)
+	return nil
 }
 
 func httpPost(url string, v interface{}) (*http.Response, error) {
