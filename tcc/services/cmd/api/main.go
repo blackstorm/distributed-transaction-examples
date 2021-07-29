@@ -15,6 +15,10 @@ type OrderRequest struct {
 	Id string
 }
 
+type AccountRequest struct {
+	Amount uint
+}
+
 func main() {
 	log.SetFlags(log.Lshortfile | log.LstdFlags)
 	log.SetPrefix("api-order: ")
@@ -43,7 +47,7 @@ func main() {
 			if err = tx.CallBranch("http://order:4000", &OrderRequest{Id: orderId}); err != nil {
 				return err
 			}
-			if err = tx.CallBranch("http://account:5000", nil); err != nil {
+			if err = tx.CallBranch("http://account:5000", &AccountRequest{Amount: 10}); err != nil {
 				return err
 			}
 			return nil
@@ -116,7 +120,37 @@ func main() {
 	})
 
 	http.HandleFunc("/tcc/confirm", func(rw http.ResponseWriter, r *http.Request) {
-		// TODO
+		tid := r.URL.Query().Get("tid")
+		log.Printf("transaction %s confirm", tid)
+
+		var orderRequest OrderRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.Decode(&orderRequest)
+
+		// 幂等
+		checker := tcc.NewTCCChecker(tid, db)
+		if isConfirm, err := checker.IsConfirm(); err != nil {
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		} else {
+			if isConfirm {
+				return
+			}
+		}
+
+		// 支持空回滚
+		if _, err := db.Exec(fmt.Sprintf("update `order` set status = 'FINISHED' where id = '%s'", orderRequest.Id)); err != nil {
+			log.Printf("order update status error %v", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		tccLoger := tcc.NewTCCLoger(tid, db)
+		if err := tccLoger.LogConfirm(); err != nil {
+			log.Printf("tcc log confirm error %v", err)
+			rw.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 	})
 
 	http.HandleFunc("/tcc/cancel", func(rw http.ResponseWriter, r *http.Request) {
