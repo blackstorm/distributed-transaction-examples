@@ -10,4 +10,5 @@ GET http://api:8080/order
 `/order` api will call `customer` and `merchant` service.
 
 ## Task
+- [ ] tcc
 - [ ] xa example docker-compose
